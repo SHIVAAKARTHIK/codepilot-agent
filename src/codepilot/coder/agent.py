@@ -21,6 +21,9 @@ from src.codepilot.coder.permissions import build_coder_permissions
 from src.codepilot.coder.sandbox import create_sandbox
 from src.codepilot.config import settings
 from src.codepilot.memory.working import WorkingMemory
+from src.codepilot.skills.skill import Skill
+from src.codepilot.test_agent import agent as test_agent
+from src.codepilot.test_agent.runner import TestResult, run_test_suite
 
 _CODER_SYSTEM_PROMPT = (
     "You are the Coder agent of CodePilot. You work ONLY inside your "
@@ -31,7 +34,9 @@ _CODER_SYSTEM_PROMPT = (
     "3. Make surgical edits with edit_file (prefer targeted edits over "
     "full-file rewrites).\n"
     "4. Use execute to run/verify the code still works.\n"
-    "5. Reply with a short summary of what you changed and why.\n"
+    "5. Spawn the test_agent subagent (via the task tool) so it can add or "
+    "update test coverage for your change, then reply with a short summary "
+    "of what you changed and why.\n"
     "Some operations are blocked by guardrails (dangerous shell commands; "
     "edits to secret/credential files). If a tool call comes back blocked, "
     "do not retry it - explain what you wanted to do and move on."
@@ -43,7 +48,15 @@ Issue: {issue_title}
 Relevant files in your sandbox:
 {relevant_files}
 
+{skill_block}
 Implement a fix/change for this issue, following the loop in your system prompt."""
+
+_RETRY_PROMPT = """The test suite failed after your last change (attempt {attempt} of {max_retries}).
+
+Failure summary:
+{failure_summary}
+
+Fix the failure(s) above. Make a surgical edit, then verify with execute again."""
 
 # Files/dirs never included in before/after snapshots - the diff artifact
 # itself, and its containing folder, shouldn't diff against themselves.
@@ -57,6 +70,8 @@ class CoderResult:
     violations: list[GuardrailViolation] = field(default_factory=list)
     final_message: str = ""
     todos: list[dict] = field(default_factory=list)
+    test_result: TestResult | None = None
+    retries: int = 0
 
 
 def build_llm() -> ChatAnthropic:
@@ -64,9 +79,16 @@ def build_llm() -> ChatAnthropic:
     return ChatAnthropic(model=settings.model_name, api_key=settings.anthropic_api_key)
 
 
-def build_coder(sandbox_dir: Path, *, llm: ChatAnthropic | None = None, on_violation=None):
+def build_coder(
+    sandbox_dir: Path,
+    *,
+    llm: ChatAnthropic | None = None,
+    on_violation=None,
+    subagents: list[dict] | None = None,
+):
     """Compile the Coder subagent, wired to its own sandboxed backend,
-    guardrail middleware, and forbidden-filename permissions."""
+    guardrail middleware, forbidden-filename permissions, and (optionally)
+    the Test Agent as a spawnable subagent."""
     model = llm or build_llm()
     backend = LocalShellBackend(root_dir=str(sandbox_dir), virtual_mode=True)
     guardrail = GuardrailMiddleware(sandbox_root=sandbox_dir, on_violation=on_violation)
@@ -75,6 +97,7 @@ def build_coder(sandbox_dir: Path, *, llm: ChatAnthropic | None = None, on_viola
         backend=backend,
         permissions=build_coder_permissions(),
         middleware=[guardrail],
+        subagents=subagents,
         system_prompt=_CODER_SYSTEM_PROMPT,
     )
 
@@ -115,9 +138,19 @@ def run_coder_task(
     *,
     repo_root: Path,
     working_memory: WorkingMemory,
+    skill: Skill | None = None,
     llm: ChatAnthropic | None = None,
     agent=None,
+    max_retries: int | None = None,
 ) -> CoderResult:
+    """Drives the full inner loop: read -> plan -> edit -> verify -> spawn
+    Test Agent -> (retry up to `max_retries` on failure) -> diff preview.
+
+    Pass/fail for the retry loop comes from `run_test_suite()`
+    (deterministic), not the Coder's own self-report.
+    """
+    max_retries = settings.max_coder_retries if max_retries is None else max_retries
+
     sandbox_dir = create_sandbox(
         Path(repo_root),
         working_memory.relevant_files,
@@ -127,16 +160,47 @@ def run_coder_task(
     before = _snapshot(sandbox_dir)
 
     violations: list[GuardrailViolation] = []
-    coder = agent or build_coder(sandbox_dir, llm=llm, on_violation=violations.append)
+    coder = agent
+    if coder is None:
+        test_subagent = test_agent.as_subagent(sandbox_dir, llm=llm, on_violation=violations.append)
+        coder = build_coder(sandbox_dir, llm=llm, on_violation=violations.append, subagents=[test_subagent])
 
+    skill_block = f"{skill.to_prompt_block()}\n" if skill else ""
     prompt = _CODER_TASK_PROMPT.format(
         task_type=working_memory.task_type or "unknown",
         issue_title=working_memory.issue_title,
         relevant_files="\n".join(f"- {f}" for f in working_memory.relevant_files) or "(none listed)",
+        skill_block=skill_block,
     )
-    result_state = coder.invoke({"messages": [{"role": "user", "content": prompt}]})
-    final_message = getattr(result_state["messages"][-1], "content", "")
-    todos = result_state.get("todos", [])
+
+    final_message = ""
+    todos: list[dict] = []
+    test_result: TestResult | None = None
+    attempt = 0
+
+    while True:
+        result_state = coder.invoke({"messages": [{"role": "user", "content": prompt}]})
+        final_message = getattr(result_state["messages"][-1], "content", "")
+        todos = result_state.get("todos", [])
+
+        test_result = run_test_suite(sandbox_dir)
+        working_memory.record_test_result(
+            passed=test_result.passed,
+            details={"no_tests_collected": test_result.no_tests_collected, "counts": test_result.counts},
+        )
+
+        if test_result.passed or test_result.no_tests_collected:
+            break
+        if attempt >= max_retries:
+            break
+
+        attempt += 1
+        working_memory.increment_retry()
+        prompt = _RETRY_PROMPT.format(
+            attempt=attempt,
+            max_retries=max_retries,
+            failure_summary="\n".join(test_result.failure_summary) or test_result.raw_output[-2000:],
+        )
 
     after = _snapshot(sandbox_dir)
     diff_text = generate_unified_diff(before, after) or "(no changes)\n"
@@ -153,4 +217,6 @@ def run_coder_task(
         violations=violations,
         final_message=final_message,
         todos=todos,
+        test_result=test_result,
+        retries=attempt,
     )

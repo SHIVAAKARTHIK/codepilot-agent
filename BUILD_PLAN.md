@@ -97,15 +97,21 @@ Call the demo target repo something like `codepilot-demo-target`.
 
 ## Phase 5 — Test Agent + Skills system
 
-- [ ] Test Agent: runs the repo's test suite inside the sandbox, parses pass/fail, reports structured failures back to Coder
-- [ ] All 4 skills as structured objects (`name`, `instructions`, `workflow_steps`, `example_prompts`, `forbidden_actions`) — these are cheap (mostly data + prompt text), implement all 4 now rather than deferring:
+- [x] Test Agent: runs the repo's test suite inside the sandbox, parses pass/fail, reports structured failures back to Coder
+- [x] All 4 skills as structured objects (`name`, `instructions`, `workflow_steps`, `example_prompts`, `forbidden_actions`) — implemented as real `Skill` dataclasses:
   - `bug_fix_skill` — reproduce → localize → fix → verify
   - `feature_addition_skill` — explore_pattern → design → implement → test → document
   - `dependency_update_skill` — check_changelog → update → resolve_conflicts → test_all
   - `documentation_skill` — read_existing → draft → review_accuracy → update_index
-- [ ] Orchestrator selects skill by classified task type and passes it at subagent spawn time
+- [x] Orchestrator selects skill by classified task type and passes it at subagent spawn time (`skills.load(task_type)` → `skill.to_prompt_block()` injected into the Coder's task prompt)
 
-**Done when:** the same bug-fix issue from Phase 4 runs through the full Coder→Test loop and the failure/retry path is exercised at least once (deliberately break something to force a retry).
+> **Test Agent design:** split responsibility deliberately, consistent with the "LLM does the creative work, code does the mechanical verification" pattern used since Phase 3. The Test Agent's LLM role is narrow — given what the Coder changed, write/update whatever test(s) are needed (e.g. a bug-fix reproduction test). The actual pass/fail signal the retry loop trusts comes from `run_test_suite()` ([runner.py](src/codepilot/test_agent/runner.py)) — deterministic `pytest` execution + exit-code/output parsing — not the subagent's self-report, since retry-loop correctness shouldn't hinge on a model grading its own work.
+>
+> **This is the one place in the pipeline using real deepagents subagent spawning**: the Test Agent is built as a genuine `CompiledSubAgent` and attached to the Coder's `subagents=[...]`, so the Coder spawns it through the actual `task` tool, not a Python function call. Orchestrator→Coder and (Phase 6) Coder→PR-Agent stay as explicit Python-orchestrated pipeline stages instead — Coder needs a sandbox path that only exists once Repo Explorer has run for that specific issue, which doesn't fit the static `subagents=[...]` list `create_deep_agent()` wants at Orchestrator-construction time, and a Python-driven retry loop is easier to guarantee correct/testable than leaving max-retries enforcement to the LLM's own re-invocation logic.
+>
+> **Skills vs. deepagents' native `SkillsMiddleware`:** same divergence pattern as Phases 2/4 — deepagents' own `skills=` mechanism wants directories of `SKILL.md` files, a different shape from the spec's required structured object. `Skill.to_skill_markdown()` / `write_skill_file()` can render one into that format too (kept compatible, not required for the pipeline to work), but the pipeline itself reads the structured object directly.
+
+**Done when:** the same bug-fix issue from Phase 4 runs through the full Coder→Test loop and the failure/retry path is exercised at least once. Proven two ways: deterministically via `tests/test_coder_retry_loop.py` (a fake agent forces a failure then a fix on the 2nd attempt — independent of what a real model happens to do on a given run) and live via `main.py --phase5-check` (real Coder + real Test Agent against a real bug, with a Skill loaded).
 
 ---
 

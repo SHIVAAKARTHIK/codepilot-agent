@@ -191,6 +191,66 @@ def phase4_check() -> None:
     print(result.diff_text)
 
 
+def phase5_check() -> None:
+    """Phase 5 'done when': the same bug-fix issue from Phase 4 runs
+    through the full Coder->Test loop, with a real chance for the
+    failure/retry path to fire depending on the Coder's first attempt.
+
+    The retry loop itself is proven deterministically and unconditionally
+    by tests/test_coder_retry_loop.py (a fake agent forces a failure then
+    a fix - independent of what a real model happens to do on a given
+    run). This command is the live companion: a real Coder + real Test
+    Agent (spawned via the task tool) against a real bug, with a Skill
+    loaded and injected into the Coder's prompt.
+    """
+    settings.validate_for_llm()
+
+    import tempfile
+    from pathlib import Path as _Path
+
+    from src.codepilot.coder.agent import run_coder_task
+    from src.codepilot.memory.working import WorkingMemory
+    from src.codepilot.skills.registry import load as load_skill
+
+    repo_root = _Path(tempfile.mkdtemp(prefix="codepilot_phase5_demo_"))
+    (repo_root / "calculator.py").write_text("def divide(a, b):\n    return a / b\n", encoding="utf-8")
+
+    working_memory = WorkingMemory(
+        issue_id="demo-2",
+        issue_title="divide() crashes on division by zero",
+        issue_body=(
+            "calculator.divide(a, b) raises ZeroDivisionError when b is 0. "
+            "It should return None instead of crashing."
+        ),
+    )
+    working_memory.record_classification("bug_fix")
+    working_memory.record_relevant_files(["calculator.py"])
+
+    print(f"Demo repo:  {repo_root}")
+    print("Running Coder + Test Agent loop (spawned via the task tool; "
+          "can take a minute or two, longer if a retry fires)...\n")
+
+    result = run_coder_task(
+        repo_root=repo_root,
+        working_memory=working_memory,
+        skill=load_skill("bug_fix"),
+    )
+
+    print(f"Sandbox:    {result.sandbox_dir}")
+    print(f"Retries:    {result.retries}")
+    print(f"Guardrail violations: {len(result.violations)}")
+    if result.test_result:
+        print(
+            f"Final test result: passed={result.test_result.passed} "
+            f"no_tests_collected={result.test_result.no_tests_collected} "
+            f"counts={result.test_result.counts}"
+        )
+    print("\nFinal message from Coder:")
+    print(result.final_message)
+    print("\nDiff (also written to <sandbox>/working/proposed_diff.txt):")
+    print(result.diff_text)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="codepilot")
     parser.add_argument(
@@ -223,6 +283,11 @@ def main() -> None:
         action="store_true",
         help="Run the Coder agent against one synthetic bug-fix issue in a sandboxed temp repo.",
     )
+    parser.add_argument(
+        "--phase5-check",
+        action="store_true",
+        help="Run the full Coder + Test Agent + retry loop against one synthetic bug-fix issue.",
+    )
     args = parser.parse_args()
 
     if args.smoke_test:
@@ -243,6 +308,10 @@ def main() -> None:
 
     if args.phase4_check:
         phase4_check()
+        return
+
+    if args.phase5_check:
+        phase5_check()
         return
 
     parser.print_help()
