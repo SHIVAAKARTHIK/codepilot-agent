@@ -26,7 +26,7 @@ def _int_env(name: str, default: int) -> int:
 class Settings:
     # --- LLM ---
     anthropic_api_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
-    model_name: str = field(default_factory=lambda: os.environ.get("CODEPILOT_MODEL", "claude-sonnet-4-5"))
+    model_name: str = field(default_factory=lambda: os.environ.get("CODEPILOT_MODEL", "claude-sonnet-5"))
 
     # --- GitHub ---
     github_token: str = field(default_factory=lambda: os.environ.get("GITHUB_TOKEN", ""))

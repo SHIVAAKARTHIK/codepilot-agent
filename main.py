@@ -24,6 +24,30 @@ def smoke_test() -> None:
     print(response.content)
 
 
+def phase1_check() -> None:
+    """Phase 1 'done when': one hardcoded fake issue, no GitHub call,
+    classified and turned into a todo checklist by the Orchestrator."""
+    settings.validate_for_llm()
+
+    from src.codepilot.orchestrator.agent import run_triage
+    from src.codepilot.orchestrator.fixtures import FAKE_BUG_ISSUE
+
+    result = run_triage(FAKE_BUG_ISSUE)
+
+    print(f"Issue: #{result.issue.number} {result.issue.title}")
+    print(
+        f"Classified as: {result.classification.task_type.value} "
+        f"(confidence={result.classification.confidence:.2f})"
+    )
+    print(f"Reasoning: {result.classification.reasoning}")
+    print(f"State machine: {result.state_machine.state.value}")
+    print(f"State history: {result.state_machine.history}")
+    print("\nTodos:")
+    for todo in result.todos:
+        print(f"  [{todo['status']}] {todo['content']}")
+    print(f"\nPlan summary:\n{result.plan_summary}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="codepilot")
     parser.add_argument(
@@ -31,10 +55,19 @@ def main() -> None:
         action="store_true",
         help="Verify config + LLM connectivity with a single round-trip call.",
     )
+    parser.add_argument(
+        "--phase1-check",
+        action="store_true",
+        help="Run the Orchestrator against one hardcoded fake issue: classify + write_todos.",
+    )
     args = parser.parse_args()
 
     if args.smoke_test:
         smoke_test()
+        return
+
+    if args.phase1_check:
+        phase1_check()
         return
 
     parser.print_help()
