@@ -1,0 +1,20 @@
+# Environment
+.env
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# CodePilot runtime state
+.codepilot_sandbox/
+.codepilot_chroma/
+.repo_map_cache/
+working/
+
+# OS
+.DS_Store
+Thumbs.db

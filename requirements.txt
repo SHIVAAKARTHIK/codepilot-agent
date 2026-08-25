@@ -1,0 +1,24 @@
+# Core agent framework
+deepagents
+langgraph
+langchain
+langchain-anthropic
+langchain-community
+
+# GitHub integration (GitHubToolkit depends on PyGithub)
+PyGithub
+
+# Vector store (semantic memory + embedding retrieval)
+chromadb
+
+# TUI
+textual
+
+# Config / env
+python-dotenv
+
+# Testing
+pytest
+
+# Dev quality-of-life
+rich
