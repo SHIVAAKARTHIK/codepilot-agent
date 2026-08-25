@@ -13,13 +13,14 @@ from pathlib import Path
 
 from deepagents import create_deep_agent
 from deepagents.backends import LocalShellBackend
-from langchain_anthropic import ChatAnthropic
+from langchain_core.language_models import BaseChatModel
 
 from src.codepilot.coder.guardrails import GuardrailViolation
 from src.codepilot.coder.middleware import GuardrailMiddleware
 from src.codepilot.coder.permissions import build_coder_permissions
 from src.codepilot.coder.sandbox import create_sandbox
 from src.codepilot.config import settings
+from src.codepilot.llm import build_llm
 from src.codepilot.memory.semantic import Lesson, SemanticMemory, lessons_to_prompt_block
 from src.codepilot.memory.working import WorkingMemory
 from src.codepilot.skills.skill import Skill
@@ -78,15 +79,10 @@ class CoderResult:
     lessons_used: list[Lesson] = field(default_factory=list)
 
 
-def build_llm() -> ChatAnthropic:
-    settings.validate_for_llm()
-    return ChatAnthropic(model=settings.model_name, api_key=settings.anthropic_api_key)
-
-
 def build_coder(
     sandbox_dir: Path,
     *,
-    llm: ChatAnthropic | None = None,
+    llm: BaseChatModel | None = None,
     on_violation=None,
     subagents: list[dict] | None = None,
 ):
@@ -143,7 +139,7 @@ def run_coder_task(
     repo_root: Path,
     working_memory: WorkingMemory,
     skill: Skill | None = None,
-    llm: ChatAnthropic | None = None,
+    llm: BaseChatModel | None = None,
     agent=None,
     max_retries: int | None = None,
     semantic_memory: SemanticMemory | None = None,

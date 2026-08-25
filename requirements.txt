@@ -2,8 +2,12 @@
 deepagents
 langgraph
 langchain
-langchain-anthropic
 langchain-community
+
+# LLM providers (LLM_PROVIDER in .env selects which one is actually used;
+# both are installed so switching is just an env var change)
+langchain-openai
+langchain-anthropic
 
 # GitHub integration (GitHubToolkit depends on PyGithub)
 PyGithub

@@ -30,7 +30,10 @@ copy .env.example .env          # then fill in the values below
 
 | Variable | Required for | Notes |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | everything | from console.anthropic.com |
+| `LLM_PROVIDER` | everything | `openai` (default) or `anthropic` — selects which key below is used |
+| `OPENAI_API_KEY` | everything, if `LLM_PROVIDER=openai` | from platform.openai.com |
+| `ANTHROPIC_API_KEY` | everything, if `LLM_PROVIDER=anthropic` | from console.anthropic.com |
+| `CODEPILOT_MODEL` | everything | optional override; defaults to `gpt-4o` (openai) / `claude-sonnet-5` (anthropic) |
 | `GITHUB_TOKEN` | GitHub polling/PR features | a PAT with `repo` scope, against the **demo target** repo, not this one |
 | `GITHUB_REPO` | GitHub polling/PR features | `owner/codepilot-demo-target` |
 | `POLL_INTERVAL_MINUTES` | polling loop | default `5` |

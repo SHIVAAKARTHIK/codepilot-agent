@@ -10,9 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from deepagents import create_deep_agent
-from langchain_anthropic import ChatAnthropic
+from langchain_core.language_models import BaseChatModel
 
 from src.codepilot.config import settings
+from src.codepilot.llm import build_llm
 from src.codepilot.memory.working import WorkingMemory
 from src.codepilot.orchestrator.classifier import IssueClassification, classify_issue
 from src.codepilot.orchestrator.issue import Issue
@@ -62,18 +63,13 @@ class TriageResult:
     working_memory: WorkingMemory
 
 
-def build_llm() -> ChatAnthropic:
-    settings.validate_for_llm()
-    return ChatAnthropic(model=settings.model_name, api_key=settings.anthropic_api_key)
-
-
-def build_orchestrator(llm: ChatAnthropic | None = None):
+def build_orchestrator(llm: BaseChatModel | None = None):
     """Compile the root Orchestrator deep agent."""
     model = llm or build_llm()
     return create_deep_agent(model=model, system_prompt=_ORCHESTRATOR_SYSTEM_PROMPT)
 
 
-def run_triage(issue: Issue, *, llm: ChatAnthropic | None = None, agent=None) -> TriageResult:
+def run_triage(issue: Issue, *, llm: BaseChatModel | None = None, agent=None) -> TriageResult:
     """Classify an issue and produce an implementation checklist for it.
 
     No GitHub call is made here - `issue` can be a hardcoded fixture (Phase 1

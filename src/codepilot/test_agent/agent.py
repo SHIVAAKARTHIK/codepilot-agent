@@ -20,11 +20,11 @@ from typing import Any
 
 from deepagents import create_deep_agent
 from deepagents.backends import LocalShellBackend
-from langchain_anthropic import ChatAnthropic
+from langchain_core.language_models import BaseChatModel
 
 from src.codepilot.coder.middleware import GuardrailMiddleware
 from src.codepilot.coder.permissions import build_coder_permissions
-from src.codepilot.config import settings
+from src.codepilot.llm import build_llm
 
 _TEST_AGENT_SYSTEM_PROMPT = (
     "You are the Test Agent, spawned by the Coder to verify its changes. "
@@ -41,12 +41,7 @@ _TEST_AGENT_SYSTEM_PROMPT = (
 )
 
 
-def build_llm() -> ChatAnthropic:
-    settings.validate_for_llm()
-    return ChatAnthropic(model=settings.model_name, api_key=settings.anthropic_api_key)
-
-
-def build_test_agent(sandbox_dir: Path, *, llm: ChatAnthropic | None = None, on_violation=None):
+def build_test_agent(sandbox_dir: Path, *, llm: BaseChatModel | None = None, on_violation=None):
     model = llm or build_llm()
     backend = LocalShellBackend(root_dir=str(sandbox_dir), virtual_mode=True)
     guardrail = GuardrailMiddleware(sandbox_root=sandbox_dir, on_violation=on_violation)
@@ -59,7 +54,7 @@ def build_test_agent(sandbox_dir: Path, *, llm: ChatAnthropic | None = None, on_
     )
 
 
-def as_subagent(sandbox_dir: Path, *, llm: ChatAnthropic | None = None, on_violation=None) -> dict[str, Any]:
+def as_subagent(sandbox_dir: Path, *, llm: BaseChatModel | None = None, on_violation=None) -> dict[str, Any]:
     """A `CompiledSubAgent` spec the Coder can spawn via its `task` tool."""
     return {
         "name": "test_agent",

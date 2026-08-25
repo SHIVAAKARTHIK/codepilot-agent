@@ -9,7 +9,7 @@ Timeline: 2–3 weeks. This plan is phased, not strictly dated — work through 
 
 | Decision | Default | Why |
 |---|---|---|
-| LLM | Claude Sonnet via `langchain-anthropic` | Best tool-use reliability for this kind of agent work; swap-in for GPT-4o is a 1-line change if needed |
+| LLM | ~~Claude Sonnet via `langchain-anthropic`~~ **Switched to OpenAI `gpt-4o` (Phase 9)** via `langchain-openai` — the user has an OpenAI key. Provider is a one-line env var (`LLM_PROVIDER`) thanks to the shared [`src/codepilot/llm.py`](src/codepilot/llm.py) builder every agent goes through; `anthropic` still works if switched back |
 | Agent framework | `deepagents` + LangGraph | Spec'd by the assignment |
 | Sandbox | Local temp-dir copy of the target repo subset (not Docker/Daytona) | Simplest to get right on Windows; cloud sandbox stays a bonus |
 | GitHub integration | `langchain_community.agent_toolkits.github.GitHubToolkit` (PyGithub under the hood) | Spec'd by the assignment |

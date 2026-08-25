@@ -22,11 +22,25 @@ def _int_env(name: str, default: int) -> int:
     return int(raw) if raw else default
 
 
+def _default_model_for(provider: str) -> str:
+    return {"openai": "gpt-4o", "anthropic": "claude-sonnet-5"}.get(provider, "gpt-4o")
+
+
 @dataclass(frozen=True)
 class Settings:
     # --- LLM ---
+    # LLM_PROVIDER selects which of the two keys below is used to build
+    # every agent's model (Orchestrator, Coder, Test Agent all share one
+    # provider - see src/codepilot/llm.py). "openai" is the default since
+    # that's what this project is actually being run with.
+    llm_provider: str = field(default_factory=lambda: os.environ.get("LLM_PROVIDER", "openai").lower())
     anthropic_api_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
-    model_name: str = field(default_factory=lambda: os.environ.get("CODEPILOT_MODEL", "claude-sonnet-5"))
+    openai_api_key: str = field(default_factory=lambda: os.environ.get("OPENAI_API_KEY", ""))
+    model_name: str = field(
+        default_factory=lambda: os.environ.get(
+            "CODEPILOT_MODEL", _default_model_for(os.environ.get("LLM_PROVIDER", "openai").lower())
+        )
+    )
 
     # --- GitHub ---
     github_token: str = field(default_factory=lambda: os.environ.get("GITHUB_TOKEN", ""))
@@ -54,9 +68,12 @@ class Settings:
     project_root: Path = _PROJECT_ROOT
 
     def validate_for_llm(self) -> None:
-        if not self.anthropic_api_key:
+        key_name = "OPENAI_API_KEY" if self.llm_provider == "openai" else "ANTHROPIC_API_KEY"
+        key_value = self.openai_api_key if self.llm_provider == "openai" else self.anthropic_api_key
+        if not key_value:
             raise RuntimeError(
-                "ANTHROPIC_API_KEY is not set. Copy .env.example to .env and fill it in."
+                f"{key_name} is not set (LLM_PROVIDER={self.llm_provider!r}). "
+                "Copy .env.example to .env and fill it in."
             )
 
     def validate_for_github(self) -> None:

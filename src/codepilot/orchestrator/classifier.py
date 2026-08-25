@@ -27,7 +27,8 @@ class IssueClassification(BaseModel):
 
 class SupportsStructuredOutput(Protocol):
     """Anything with LangChain's `.with_structured_output(...)` — real
-    ChatAnthropic instances satisfy this, and so does a test double."""
+    ChatOpenAI/ChatAnthropic instances satisfy this, and so does a test
+    double."""
 
     def with_structured_output(self, schema: type[BaseModel]) -> "StructuredRunnable": ...
 

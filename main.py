@@ -15,11 +15,9 @@ from src.codepilot.config import settings
 
 
 def smoke_test() -> None:
-    settings.validate_for_llm()
+    from src.codepilot.llm import build_llm
 
-    from langchain_anthropic import ChatAnthropic
-
-    llm = ChatAnthropic(model=settings.model_name, api_key=settings.anthropic_api_key, max_tokens=64)
+    llm = build_llm()
     response = llm.invoke("Say exactly: 'CodePilot orchestrator is online.' and nothing else.")
     print(response.content)
 
