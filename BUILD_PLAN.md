@@ -247,4 +247,31 @@ codepilot-agent/
 
 ---
 
+## Post-Phase-9: bugs found by actually running against OpenAI
+
+Switching the default provider to OpenAI (`gpt-4o`, see the LLM row in
+Assumptions & Defaults) and running the live `--phaseN-check` commands for
+real surfaced several bugs that every fake-agent-driven unit test had
+structurally been unable to catch, since they never exercised the real
+`create_deep_agent()` construction or an actual model's behavior. Worth
+recording plainly: the deterministic test suite proved the *logic* was
+correct, but "141 tests pass" and "the code has never actually been run
+end-to-end against a live model" turned out to be two different claims.
+Fixed, in the order found:
+
+1. **`write_todos` wasn't a registered tool at all for `gpt-4o`.** Which harness profile `create_deep_agent()` selects — and therefore whether `TodoListMiddleware` gets included — depends on the model provider; it's not guaranteed the way the Phase 1 code assumed. Fix: explicitly pass `middleware=[TodoListMiddleware()]` in `build_orchestrator()` and `build_coder()`.
+2. **Without `write_todos` available, gpt-4o substituted `write_file`** to record its plan (writing e.g. `implementation_plan.md`) — and kept retrying that under different filenames for 4 rounds after each permission denial, even while its own final message stated `write_todos` was "typically required." Fix (defense in depth, on top of #1 actually fixing the root cause): the Orchestrator now denies all write access (`FilesystemPermission(mode="deny")` on `/**`), closing off the substitute path structurally.
+3. **`build_coder()`/`build_test_agent()` crashed at construction time, always**, the moment they were run with a real LLM: `create_deep_agent(permissions=..., backend=LocalShellBackend(...))` raises `NotImplementedError` because `FilesystemMiddleware` does not support `permissions=` alongside an execute-capable (`SandboxBackendProtocol`) backend. This was in every commit since Phase 4, invisible because every Phase 4-7 test called `run_coder_task(agent=<fake>)`, bypassing the real `build_coder()` entirely. Fix: dropped `permissions=build_coder_permissions()` from both call sites - the forbidden-filename protection it was meant to add was already fully covered by `GuardrailMiddleware`'s `check_file_edit()` on every `write_file`/`edit_file` call, so nothing was actually lost.
+4. **`UnicodeEncodeError` printing agent output on Windows** - the default console codepage (`cp1252`) can't encode arbitrary Unicode a model generates. Fix: reconfigure `sys.stdout`/`sys.stderr` to UTF-8 at the top of `main.py`.
+5. **`OpenAIRateLimitError` (429) crashed the whole pipeline** on a 30k-tokens-per-minute tier, which a single multi-call agent task (classify → plan → edit → spawn Test Agent → retries) can exhaust on its own. Fix: `max_retries=10` on the provider's own `ChatOpenAI`/`ChatAnthropic` constructor (its SDK-level retry-with-backoff) - not `Runnable.with_retry()`, which returns a wrapper that no longer exposes `.bind_tools()` and silently breaks `create_deep_agent()`.
+6. **The diff included garbled `__pycache__/*.pyc` bytecode** once the Coder actually ran code in the sandbox (`python calculator.py` / `pytest` both generate it). `_snapshot()` walked every file with no exclusions beyond the `working/` diff-artifact folder. Fix: exclude `__pycache__`/`.pytest_cache` dirs and `.pyc`/`.pyo` files from the before/after snapshot.
+
+All fixed with accompanying deterministic tests where the bug was
+reachable without a real LLM (#3's redundancy, #6's exclusions - 5 new
+tests) and confirmed live for the rest (#1, #2, #4, #5) by re-running
+`--phase1-check` / `--phase4-check` / `--phase5-check` against the real
+account until each produced clean output.
+
+---
+
 *Next step: Phase 0 scaffolding — say the word and I'll set up the project structure, requirements file, and the two GitHub repos' worth of groundwork.*

@@ -1,17 +1,29 @@
-"""Declarative filesystem permission rules for the Coder's sandboxed
-backend.
+"""Declarative filesystem permission rules - defined here, but **not**
+actually usable with the Coder's sandboxed backend. Kept for reference and
+to document a real dead end hit while building this.
 
 The spec's `Permission(path=..., access="read_write"|"read_only")` snippet
-doesn't exist in the installed `deepagents` version (see BUILD_PLAN.md) -
-the real primitive is `FilesystemPermission(operations=[...], paths=[...],
-mode="allow"|"deny"|"interrupt")`.
+doesn't exist in the installed `deepagents` version - the real primitive
+is `FilesystemPermission(operations=[...], paths=[...],
+mode="allow"|"deny"|"interrupt")`, and that part of the earlier
+substitution note still holds.
 
-General sandbox confinement - the Coder cannot write outside its working
-directory - is already provided structurally by
-`LocalShellBackend(root_dir=sandbox_dir, virtual_mode=True)`, which blocks
-path traversal (`..`, `~`) and verifies every resolved path stays inside
-`root_dir`. These rules add the one thing that isn't covered by that:
-denying writes to specific forbidden filenames *within* the sandbox.
+What wasn't caught until testing against a real LLM (Phase 9): passing
+`permissions=` to `create_deep_agent()` alongside an execute-capable
+backend (`LocalShellBackend`, which implements `SandboxBackendProtocol`)
+raises `NotImplementedError` at construction time - `FilesystemMiddleware`
+states outright that "Tool-level permissions for the execute tool are not
+implemented" for such backends. Every Phase 4-7 test exercised
+`run_coder_task(agent=<fake>)`, bypassing `build_coder()`'s real
+`create_deep_agent()` call entirely, so this never surfaced until an
+actual LLM was run through it.
+
+The forbidden-filename protection this was meant to provide is still
+fully in force - it was always also implemented in
+`coder/guardrails.py::check_file_edit()`, enforced by
+`coder/middleware.py::GuardrailMiddleware` on every `write_file`/
+`edit_file` call, independent of this module. `build_coder()`/
+`build_test_agent()` no longer pass `permissions=` at all.
 """
 from __future__ import annotations
 

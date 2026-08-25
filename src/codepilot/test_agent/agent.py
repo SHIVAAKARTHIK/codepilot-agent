@@ -23,7 +23,6 @@ from deepagents.backends import LocalShellBackend
 from langchain_core.language_models import BaseChatModel
 
 from src.codepilot.coder.middleware import GuardrailMiddleware
-from src.codepilot.coder.permissions import build_coder_permissions
 from src.codepilot.llm import build_llm
 
 _TEST_AGENT_SYSTEM_PROMPT = (
@@ -48,7 +47,6 @@ def build_test_agent(sandbox_dir: Path, *, llm: BaseChatModel | None = None, on_
     return create_deep_agent(
         model=model,
         backend=backend,
-        permissions=build_coder_permissions(),
         middleware=[guardrail],
         system_prompt=_TEST_AGENT_SYSTEM_PROMPT,
     )

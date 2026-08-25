@@ -17,7 +17,6 @@ from langchain_core.language_models import BaseChatModel
 
 from src.codepilot.coder.guardrails import GuardrailViolation
 from src.codepilot.coder.middleware import GuardrailMiddleware
-from src.codepilot.coder.permissions import build_coder_permissions
 from src.codepilot.coder.sandbox import create_sandbox
 from src.codepilot.config import settings
 from src.codepilot.llm import build_llm
@@ -32,7 +31,9 @@ _CODER_SYSTEM_PROMPT = (
     "sandbox - a copy of just the files relevant to this task, not the "
     "full repository. Follow this loop:\n"
     "1. Use read_file to read the relevant files.\n"
-    "2. Call write_todos once with your implementation plan.\n"
+    "2. You MUST call write_todos once with your implementation plan - this "
+    "is a hard requirement, not optional, even for a task that looks "
+    "simple.\n"
     "3. Make surgical edits with edit_file (prefer targeted edits over "
     "full-file rewrites).\n"
     "4. Use execute to run/verify the code still works.\n"
@@ -65,6 +66,14 @@ Fix the failure(s) above. Make a surgical edit, then verify with execute again."
 # itself, and its containing folder, shouldn't diff against themselves.
 _SNAPSHOT_EXCLUDE_PREFIX = "working/"
 
+# Generated/compiled artifacts that can appear once the Coder actually
+# runs code in the sandbox (e.g. `python calculator.py` or `pytest`
+# creates __pycache__/*.pyc). These aren't source the Coder wrote and
+# aren't meaningfully diffable as text - including them just produces
+# garbled binary noise in the diff a human is supposed to review.
+_SNAPSHOT_EXCLUDE_DIR_NAMES = {"__pycache__", ".pytest_cache"}
+_SNAPSHOT_EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
+
 
 @dataclass
 class CoderResult:
@@ -87,16 +96,25 @@ def build_coder(
     subagents: list[dict] | None = None,
 ):
     """Compile the Coder subagent, wired to its own sandboxed backend,
-    guardrail middleware, forbidden-filename permissions, and (optionally)
-    the Test Agent as a spawnable subagent."""
+    guardrail middleware (which also covers the forbidden-filename checks
+    - see permissions.py for why `FilesystemPermission` isn't usable
+    here), and (optionally) the Test Agent as a spawnable subagent.
+
+    Explicitly includes `TodoListMiddleware`: which harness profile
+    `create_deep_agent` picks - and therefore whether `write_todos` is
+    registered at all - depends on the model provider. Observed with
+    gpt-4o: without this, `write_todos` isn't in the tool list, so "call
+    write_todos" in the prompt has literally nothing to call.
+    """
+    from langchain.agents.middleware import TodoListMiddleware
+
     model = llm or build_llm()
     backend = LocalShellBackend(root_dir=str(sandbox_dir), virtual_mode=True)
     guardrail = GuardrailMiddleware(sandbox_root=sandbox_dir, on_violation=on_violation)
     return create_deep_agent(
         model=model,
         backend=backend,
-        permissions=build_coder_permissions(),
-        middleware=[guardrail],
+        middleware=[guardrail, TodoListMiddleware()],
         subagents=subagents,
         system_prompt=_CODER_SYSTEM_PROMPT,
     )
@@ -106,6 +124,10 @@ def _snapshot(sandbox_dir: Path) -> dict[str, str]:
     snapshot: dict[str, str] = {}
     for path in sandbox_dir.rglob("*"):
         if not path.is_file():
+            continue
+        if _SNAPSHOT_EXCLUDE_DIR_NAMES & set(path.relative_to(sandbox_dir).parts[:-1]):
+            continue
+        if path.suffix in _SNAPSHOT_EXCLUDE_SUFFIXES:
             continue
         rel = path.relative_to(sandbox_dir).as_posix()
         if rel.startswith(_SNAPSHOT_EXCLUDE_PREFIX):

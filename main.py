@@ -13,6 +13,13 @@ import sys
 
 from src.codepilot.config import settings
 
+# Windows consoles often default to cp1252, which can't encode arbitrary
+# Unicode an LLM might generate (smart quotes, non-Latin characters, ...).
+# Reconfigure to UTF-8 so printing agent output never crashes on that.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
+
 
 def smoke_test() -> None:
     from src.codepilot.llm import build_llm

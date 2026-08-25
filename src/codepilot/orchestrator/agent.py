@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from deepagents import create_deep_agent
+from deepagents import FilesystemPermission, create_deep_agent
 from langchain_core.language_models import BaseChatModel
 
 from src.codepilot.config import settings
@@ -31,13 +31,22 @@ _TRIAGE_PROMPT = """You have been told this issue's category: {task_type}.
 
 Your job right now is ONLY to plan, not to implement:
 1. Read the issue title and body below.
-2. Call the `write_todos` tool exactly once with an implementation checklist
-   appropriate for a `{task_type}` task, following this workflow shape:
-   {workflow_hint}
-3. After calling `write_todos`, reply with a one-paragraph summary of your plan.
+2. You MUST call the `write_todos` tool exactly once with an implementation
+   checklist appropriate for a `{task_type}` task, following this workflow
+   shape: {workflow_hint}
+   This is a hard requirement, not a suggestion - do not skip it just
+   because the task looks simple, and do not merely describe the plan in
+   your text response instead of calling the tool.
+   Use `write_todos` specifically for this, and nothing else: do NOT call
+   `write_file`, `edit_file`, or any other tool to record the plan (e.g. do
+   not write a plan to a markdown file) - `write_todos` is the only
+   correct way to record it.
+3. Only after calling `write_todos`, reply with a one-paragraph summary of
+   your plan.
 
 Do not try to read or edit any files - the Repo Explorer and Coder agents
-handle that in later stages. You are producing a plan only.
+handle that in later stages. You are producing a plan only, and the plan
+itself must be recorded via `write_todos`, not written to a file.
 
 Issue title: {title}
 
@@ -64,9 +73,32 @@ class TriageResult:
 
 
 def build_orchestrator(llm: BaseChatModel | None = None):
-    """Compile the root Orchestrator deep agent."""
+    """Compile the root Orchestrator deep agent.
+
+    Two things found by actually running this against a real (non-Claude)
+    model, gpt-4o, that unit tests with fake agents never exercised:
+
+    1. `write_todos` isn't necessarily registered at all - which harness
+       profile `create_deep_agent` selects (and therefore whether
+       `TodoListMiddleware` is included) depends on the model provider.
+       Explicitly adding it below guarantees the tool the prompt requires
+       actually exists to call.
+    2. Without `write_todos` available, gpt-4o used `write_file` as a
+       substitute way to "record a plan" (e.g. writing
+       `implementation_plan.md`) - and kept retrying that under different
+       filenames even after being told not to. Denying write access
+       entirely closes that off structurally; relying on the prompt alone
+       was not enough.
+    """
+    from langchain.agents.middleware import TodoListMiddleware
+
     model = llm or build_llm()
-    return create_deep_agent(model=model, system_prompt=_ORCHESTRATOR_SYSTEM_PROMPT)
+    return create_deep_agent(
+        model=model,
+        system_prompt=_ORCHESTRATOR_SYSTEM_PROMPT,
+        permissions=[FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")],
+        middleware=[TodoListMiddleware()],
+    )
 
 
 def run_triage(issue: Issue, *, llm: BaseChatModel | None = None, agent=None) -> TriageResult:
