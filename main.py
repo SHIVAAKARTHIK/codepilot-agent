@@ -357,6 +357,92 @@ def phase6_check(*, live: bool = False, approve_gates: list[str] | None = None) 
         print(f"  {result.error}")
 
 
+def phase7_check() -> None:
+    """Phase 7 'done when': running a second, similar seeded issue visibly
+    retrieves and uses a lesson from the first.
+
+    The retrieval-and-injection mechanics are proven deterministically by
+    tests/test_coder_semantic_memory.py (a recording fake agent, no LLM
+    needed). This command is the live, end-to-end companion: two real
+    Coder runs against the same demo repo - a PR opens (dry run) after
+    the first, recording a lesson, and the second run's prompt visibly
+    includes it.
+    """
+    settings.validate_for_llm()
+
+    import tempfile
+    from pathlib import Path as _Path
+
+    from src.codepilot.coder.agent import run_coder_task
+    from src.codepilot.memory.semantic import SemanticMemory
+    from src.codepilot.memory.working import WorkingMemory
+    from src.codepilot.orchestrator.issue import Issue
+    from src.codepilot.pr_agent.agent import open_pull_request
+    from src.codepilot.skills.registry import load as load_skill
+
+    repo_root = _Path(tempfile.mkdtemp(prefix="codepilot_phase7_demo_"))
+    (repo_root / "calculator.py").write_text(
+        "def divide(a, b):\n    return a / b\n\n\ndef modulo(a, b):\n    return a % b\n", encoding="utf-8"
+    )
+
+    semantic_memory = SemanticMemory(persist_dir=_Path(tempfile.mkdtemp(prefix="codepilot_phase7_chroma_")))
+    repo_id = "codepilot-phase7-demo"
+
+    issue_1 = Issue(
+        id="p7-1",
+        number=101,
+        title="divide() crashes on division by zero",
+        body="calculator.divide(a, b) raises ZeroDivisionError when b is 0. It should return None instead.",
+        reporter=None,
+    )
+    wm1 = WorkingMemory(issue_id=issue_1.id, issue_title=issue_1.title, issue_body=issue_1.body)
+    wm1.record_classification("bug_fix")
+    wm1.record_relevant_files(["calculator.py"])
+
+    print("=== Run 1: fixing divide() ===")
+    result_1 = run_coder_task(
+        repo_root=repo_root, working_memory=wm1, skill=load_skill("bug_fix"),
+        semantic_memory=semantic_memory, repo_id=repo_id,
+    )
+    print(f"Lessons used (expect 0 - nothing recorded yet): {len(result_1.lessons_used)}")
+
+    pr_result_1 = open_pull_request(
+        github_client=_DryRunGitHubClient(),
+        issue=issue_1,
+        coder_result=result_1,
+        approach_summary=result_1.final_message[:500],
+        what_changed=[f"Updated {f}" for f in result_1.changed_files],
+        why="Fixes the reported bug.",
+        approved_gates=frozenset({"pr_target"}),
+        semantic_memory=semantic_memory,
+        task_type="bug_fix",
+    )
+    print(f"PR Agent result: {pr_result_1.status} (lesson recorded: {pr_result_1.status == 'PR_OPENED'})")
+
+    issue_2 = Issue(
+        id="p7-2",
+        number=102,
+        title="modulo() crashes on division by zero",
+        body=(
+            "calculator.modulo(a, b) raises ZeroDivisionError when b is 0, just like divide() "
+            "used to. It should return None instead."
+        ),
+        reporter=None,
+    )
+    wm2 = WorkingMemory(issue_id=issue_2.id, issue_title=issue_2.title, issue_body=issue_2.body)
+    wm2.record_classification("bug_fix")
+    wm2.record_relevant_files(["calculator.py"])
+
+    print("\n=== Run 2: fixing modulo() (should reuse the lesson from Run 1) ===")
+    result_2 = run_coder_task(
+        repo_root=repo_root, working_memory=wm2, skill=load_skill("bug_fix"),
+        semantic_memory=semantic_memory, repo_id=repo_id,
+    )
+    print(f"Lessons used: {len(result_2.lessons_used)}")
+    for lesson in result_2.lessons_used:
+        print(f"  - {lesson.issue_summary}\n    approach: {lesson.approach}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="codepilot")
     parser.add_argument(
@@ -409,6 +495,11 @@ def main() -> None:
         default="",
         help="With --phase6-check: comma-separated gate names to pre-approve, e.g. pr_target,file_count.",
     )
+    parser.add_argument(
+        "--phase7-check",
+        action="store_true",
+        help="Run two similar bug-fix issues; the second should visibly reuse a lesson from the first.",
+    )
     args = parser.parse_args()
 
     if args.smoke_test:
@@ -438,6 +529,10 @@ def main() -> None:
     if args.phase6_check:
         gates = [g.strip() for g in args.approve_gates.split(",") if g.strip()]
         phase6_check(live=args.live, approve_gates=gates)
+        return
+
+    if args.phase7_check:
+        phase7_check()
         return
 
     parser.print_help()

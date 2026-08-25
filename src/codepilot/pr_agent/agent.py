@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 
 from src.codepilot.coder.agent import CoderResult
 from src.codepilot.github_client import GitHubClient, MergeConflict
+from src.codepilot.memory.semantic import SemanticMemory
 from src.codepilot.orchestrator.issue import Issue
 from src.codepilot.pr_agent.formatting import branch_name, commit_message, pr_body, pr_title
 from src.codepilot.pr_agent.gates import PendingApproval, collect_pending_approvals
@@ -42,11 +43,20 @@ def open_pull_request(
     approved_gates: frozenset[str] = frozenset(),
     labels: list[str] | None = None,
     reviewer: str | None = None,
+    semantic_memory: SemanticMemory | None = None,
+    task_type: str | None = None,
 ) -> PRResult:
     """Checks all 4 HITL gates first; if any are un-approved, returns
     PENDING_APPROVAL without touching GitHub at all - no branch, no
     commit, no PR. Only once every gate is clear (or pre-approved via
-    `approved_gates`) does it actually write anything."""
+    `approved_gates`) does it actually write anything.
+
+    If `semantic_memory` (and `task_type`) are given and the PR opens
+    successfully, records a "lesson learned" entry (Component 5) - the
+    practical trigger point for "after a PR opens successfully", since
+    this codebase has no webhook/polling to observe an actual GitHub
+    merge event.
+    """
     base_branch = github_client.get_default_branch()
     num_files = len(coder_result.changed_files)
     retries = coder_result.retries
@@ -82,6 +92,15 @@ def open_pull_request(
         labels=labels or DEFAULT_LABELS,
         reviewer=reviewer if reviewer is not None else issue.reporter,
     )
+
+    if semantic_memory is not None and task_type:
+        semantic_memory.record_lesson(
+            repo=github_client.repo.full_name,
+            task_type=task_type,
+            issue_summary=issue.title,
+            approach=approach_summary,
+            files_changed=coder_result.changed_files,
+        )
 
     return PRResult(status="PR_OPENED", pr_url=pr.html_url, pr_number=pr.number, branch=branch)
 

@@ -20,6 +20,7 @@ from src.codepilot.coder.middleware import GuardrailMiddleware
 from src.codepilot.coder.permissions import build_coder_permissions
 from src.codepilot.coder.sandbox import create_sandbox
 from src.codepilot.config import settings
+from src.codepilot.memory.semantic import Lesson, SemanticMemory, lessons_to_prompt_block
 from src.codepilot.memory.working import WorkingMemory
 from src.codepilot.skills.skill import Skill
 from src.codepilot.test_agent import agent as test_agent
@@ -49,6 +50,7 @@ Relevant files in your sandbox:
 {relevant_files}
 
 {skill_block}
+{lessons_block}
 Implement a fix/change for this issue, following the loop in your system prompt."""
 
 _RETRY_PROMPT = """The test suite failed after your last change (attempt {attempt} of {max_retries}).
@@ -73,6 +75,7 @@ class CoderResult:
     test_result: TestResult | None = None
     retries: int = 0
     changed_files: list[str] = field(default_factory=list)
+    lessons_used: list[Lesson] = field(default_factory=list)
 
 
 def build_llm() -> ChatAnthropic:
@@ -143,14 +146,22 @@ def run_coder_task(
     llm: ChatAnthropic | None = None,
     agent=None,
     max_retries: int | None = None,
+    semantic_memory: SemanticMemory | None = None,
+    repo_id: str | None = None,
 ) -> CoderResult:
-    """Drives the full inner loop: read -> plan -> edit -> verify -> spawn
-    Test Agent -> (retry up to `max_retries` on failure) -> diff preview.
+    """Drives the full inner loop: retrieve past lessons -> read -> plan ->
+    edit -> verify -> spawn Test Agent -> (retry up to `max_retries` on
+    failure) -> diff preview.
 
     Pass/fail for the retry loop comes from `run_test_suite()`
     (deterministic), not the Coder's own self-report.
+
+    If `semantic_memory` is given, the top-3 most similar past lessons for
+    this `repo_id` + task type are retrieved and injected into the Coder's
+    prompt before it starts (Component 5).
     """
     max_retries = settings.max_coder_retries if max_retries is None else max_retries
+    repo_id = repo_id or str(Path(repo_root).resolve())
 
     sandbox_dir = create_sandbox(
         Path(repo_root),
@@ -166,12 +177,22 @@ def run_coder_task(
         test_subagent = test_agent.as_subagent(sandbox_dir, llm=llm, on_violation=violations.append)
         coder = build_coder(sandbox_dir, llm=llm, on_violation=violations.append, subagents=[test_subagent])
 
+    lessons: list[Lesson] = []
+    if semantic_memory is not None and working_memory.task_type:
+        lessons = semantic_memory.retrieve_similar_lessons(
+            repo=repo_id,
+            task_type=working_memory.task_type,
+            query=f"{working_memory.issue_title}\n{working_memory.issue_body}",
+        )
+
     skill_block = f"{skill.to_prompt_block()}\n" if skill else ""
+    lessons_block = lessons_to_prompt_block(lessons)
     prompt = _CODER_TASK_PROMPT.format(
         task_type=working_memory.task_type or "unknown",
         issue_title=working_memory.issue_title,
         relevant_files="\n".join(f"- {f}" for f in working_memory.relevant_files) or "(none listed)",
         skill_block=skill_block,
+        lessons_block=lessons_block,
     )
 
     final_message = ""
@@ -222,4 +243,5 @@ def run_coder_task(
         test_result=test_result,
         retries=attempt,
         changed_files=changed_files,
+        lessons_used=lessons,
     )

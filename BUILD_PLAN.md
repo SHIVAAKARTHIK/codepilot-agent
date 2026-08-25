@@ -139,10 +139,16 @@ Call the demo target repo something like `codepilot-demo-target`.
 
 ## Phase 7 — Semantic memory
 
-- [ ] After a PR opens successfully, extract a "lesson learned" (issue summary, files changed, approach) into ChromaDB keyed by repo + issue type
-- [ ] Before starting a new task, retrieve top-3 similar past lessons and inject into the Coder's context
+- [x] After a PR opens successfully, extract a "lesson learned" (issue summary, files changed, approach) into ChromaDB keyed by repo + issue type
+- [x] Before starting a new task, retrieve top-3 similar past lessons and inject into the Coder's context
 
-**Done when:** running a second, similar seeded issue visibly retrieves and uses a lesson from the first.
+> **Implementation notes:**
+> - "Keyed by repository + issue type" is a metadata filter (`where={"$and":[{"repo":...},{"task_type":...}]}`) on one shared Chroma collection, not one physical collection per repo/type pair — idiomatic for this kind of scoped vector search, and avoids fragmenting the index for no benefit.
+> - Reuses Chroma's bundled local `all-MiniLM-L6-v2` embedding model — the same one Phase 3's embedding retrieval already uses, no new dependency or external API/key.
+> - "After a PR opens successfully" is implemented as "after `open_pull_request` returns `PR_OPENED`" — this codebase has no webhook or polling to observe an actual GitHub *merge* event, so PR-opened is the practical, honestly-documented trigger point rather than true merge confirmation.
+> - Injection point: `run_coder_task` retrieves before building its prompt and renders lessons into the same prompt as the Skill block, via `lessons_to_prompt_block()`.
+
+**Done when:** running a second, similar seeded issue visibly retrieves and uses a lesson from the first. Proven two ways: deterministically via `tests/test_coder_semantic_memory.py` (a recording fake agent captures the actual prompt text and confirms the prior lesson's summary/approach appear in it — no LLM needed) and live via `main.py --phase7-check` (two real Coder runs against the same demo repo; the second prints exactly which lesson(s) it received from the first).
 
 ---
 

@@ -143,6 +143,69 @@ def test_merge_conflict_results_in_failed_not_retry(tmp_path):
     assert client.opened_pr is None  # never got to opening a PR
 
 
+class _FakeSemanticMemory:
+    def __init__(self) -> None:
+        self.recorded = []
+
+    def record_lesson(self, **kwargs):
+        self.recorded.append(kwargs)
+
+
+def test_records_lesson_when_pr_opens_successfully(tmp_path):
+    client = _FakeGitHubClient(default_branch="develop")
+    coder_result = _make_coder_result(tmp_path, changed_files=["a.py"])
+    semantic_memory = _FakeSemanticMemory()
+
+    open_pull_request(
+        github_client=client,
+        issue=_issue(),
+        coder_result=coder_result,
+        approach_summary="Added a null check.",
+        what_changed=["fixed null check"],
+        why="prevents crash",
+        semantic_memory=semantic_memory,
+        task_type="bug_fix",
+    )
+
+    assert len(semantic_memory.recorded) == 1
+    recorded = semantic_memory.recorded[0]
+    assert recorded["repo"] == "acme/demo"
+    assert recorded["task_type"] == "bug_fix"
+    assert recorded["issue_summary"] == "Fix null pointer"
+    assert recorded["approach"] == "Added a null check."
+    assert recorded["files_changed"] == ["a.py"]
+
+
+def test_no_lesson_recorded_when_pending_approval(tmp_path):
+    client = _FakeGitHubClient(default_branch="main")  # gates
+    coder_result = _make_coder_result(tmp_path, changed_files=["a.py"])
+    semantic_memory = _FakeSemanticMemory()
+
+    result = open_pull_request(
+        github_client=client, issue=_issue(), coder_result=coder_result,
+        approach_summary="x", what_changed=["x"], why="x",
+        semantic_memory=semantic_memory, task_type="bug_fix",
+    )
+
+    assert result.status == "PENDING_APPROVAL"
+    assert semantic_memory.recorded == []
+
+
+def test_no_lesson_recorded_on_merge_conflict(tmp_path):
+    client = _FakeGitHubClient(default_branch="develop", raise_conflict=True)
+    coder_result = _make_coder_result(tmp_path, changed_files=["a.py"])
+    semantic_memory = _FakeSemanticMemory()
+
+    result = open_pull_request(
+        github_client=client, issue=_issue(), coder_result=coder_result,
+        approach_summary="x", what_changed=["x"], why="x",
+        semantic_memory=semantic_memory, task_type="bug_fix",
+    )
+
+    assert result.status == "FAILED"
+    assert semantic_memory.recorded == []
+
+
 def test_explicit_reviewer_overrides_issue_reporter(tmp_path):
     client = _FakeGitHubClient(default_branch="develop")
     coder_result = _make_coder_result(tmp_path, changed_files=["a.py"])
