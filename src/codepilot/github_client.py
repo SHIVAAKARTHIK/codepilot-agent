@@ -15,11 +15,20 @@ identical either way; only the auth mechanism differs.
 """
 from __future__ import annotations
 
-from github import Auth, Github
+from github import Auth, Github, GithubException
+from github.InputGitTreeElement import InputGitTreeElement
 from github.Issue import Issue as GHIssue
+from github.PullRequest import PullRequest as GHPullRequest
 
 from src.codepilot.config import settings
 from src.codepilot.orchestrator.issue import Issue
+
+
+class MergeConflict(RuntimeError):
+    """The target branch moved out from under us in a way that isn't a
+    fast-forward - the closest real-world equivalent of a merge conflict
+    for the GitHub Contents/Git-Data API flow used here (there is no local
+    working tree to run a traditional 3-way merge on)."""
 
 
 def estimate_complexity(title: str, body: str) -> int:
@@ -57,6 +66,69 @@ class GitHubClient:
                 candidates.append(to_issue(gh_issue))
         return candidates
 
+    def get_default_branch(self) -> str:
+        return self.repo.default_branch
+
+    def commit_files_to_branch(self, *, branch: str, files: dict[str, str], message: str) -> str:
+        """Creates `branch` off the default branch's current HEAD (or
+        fast-forwards it if the branch already exists) with ONE commit
+        containing all of `files` (repo-relative path -> new content).
+        Returns the new commit sha.
+
+        Uses the Git Data API (tree/commit/ref) rather than the simpler
+        Contents API (`create_file`/`update_file`) so multiple files land
+        in a single structured commit instead of one commit per file.
+        """
+        default_branch = self.get_default_branch()
+        base_ref = self.repo.get_git_ref(f"heads/{default_branch}")
+        base_commit = self.repo.get_git_commit(base_ref.object.sha)
+
+        elements = [
+            InputGitTreeElement(path=path, mode="100644", type="blob", content=content)
+            for path, content in files.items()
+        ]
+        new_tree = self.repo.create_git_tree(elements, base_tree=base_commit.tree)
+        new_commit = self.repo.create_git_commit(message, new_tree, [base_commit])
+
+        try:
+            self.repo.create_git_ref(f"refs/heads/{branch}", new_commit.sha)
+        except GithubException as exc:
+            if exc.status == 422:  # ref already exists - fast-forward it
+                existing_ref = self.repo.get_git_ref(f"heads/{branch}")
+                try:
+                    existing_ref.edit(new_commit.sha, force=False)
+                except GithubException as ff_exc:
+                    raise MergeConflict(
+                        f"branch {branch!r} could not be fast-forwarded to the new commit "
+                        f"(status {ff_exc.status}) - it has diverged."
+                    ) from ff_exc
+            else:
+                raise
+
+        return new_commit.sha
+
+    def open_pull_request(
+        self,
+        *,
+        branch: str,
+        base: str,
+        title: str,
+        body: str,
+        labels: list[str] | None = None,
+        reviewer: str | None = None,
+    ) -> GHPullRequest:
+        pr = self.repo.create_pull(base=base, head=branch, title=title, body=body)
+        if labels:
+            pr.add_to_labels(*labels)
+        if reviewer:
+            try:
+                pr.create_review_request(reviewers=[reviewer])
+            except GithubException:
+                # e.g. reviewer is the PR author, or lacks repo access -
+                # non-fatal, the PR itself is still open.
+                pass
+        return pr
+
 
 def is_candidate(gh_issue: GHIssue, complexity_threshold: int) -> bool:
     labels = {label.name for label in gh_issue.labels}
@@ -75,4 +147,5 @@ def to_issue(gh_issue: GHIssue) -> Issue:
         title=gh_issue.title,
         body=gh_issue.body or "",
         labels=[label.name for label in gh_issue.labels],
+        reporter=gh_issue.user.login if gh_issue.user else None,
     )

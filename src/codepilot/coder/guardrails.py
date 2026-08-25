@@ -14,7 +14,7 @@ from pathlib import Path
 
 @dataclass
 class GuardrailViolation:
-    kind: str  # "command" | "file_edit"
+    kind: str  # "command" | "file_edit" | "hitl_gate"
     detail: str
     reason: str
 
@@ -24,6 +24,15 @@ _DANGEROUS_COMMAND_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bwget\b", re.IGNORECASE), "network fetch via wget"),
     (re.compile(r"\bpip\s+install\b", re.IGNORECASE), "package install (network) via pip install"),
 ]
+
+# Component 6's HITL gate table lists "any execute call containing git
+# push" as requiring human approval (network operation) - distinct in kind
+# from the hard "block" guardrails above, so it's tagged "hitl_gate" rather
+# than "command". Behaviorally both currently refuse rather than proceed
+# (see BUILD_PLAN.md on why true pause-and-resume needs Phase 8's TUI); the
+# distinct kind is what lets that TUI tell "hard security block" apart
+# from "needs a yes/no and could be approved."
+_GIT_PUSH_RE = re.compile(r"\bgit\s+push\b", re.IGNORECASE)
 
 # Flags can appear in either order (`-rf` or `-fr`, `sudo rm -r -f`, etc.),
 # so this checks the flag cluster's letters rather than a fixed sequence.
@@ -48,6 +57,11 @@ def check_execute_command(command: str, *, sandbox_root: str | Path) -> Guardrai
     if _is_recursive_force_delete(command):
         return GuardrailViolation(
             kind="command", detail=command, reason="blocked pattern: recursive force-delete (rm -rf or a flag-order variant)"
+        )
+
+    if _GIT_PUSH_RE.search(command):
+        return GuardrailViolation(
+            kind="hitl_gate", detail=command, reason="git push is a network operation and requires human approval"
         )
 
     for pattern, reason in _DANGEROUS_COMMAND_PATTERNS:

@@ -72,6 +72,7 @@ class CoderResult:
     todos: list[dict] = field(default_factory=list)
     test_result: TestResult | None = None
     retries: int = 0
+    changed_files: list[str] = field(default_factory=list)
 
 
 def build_llm() -> ChatAnthropic:
@@ -204,6 +205,7 @@ def run_coder_task(
 
     after = _snapshot(sandbox_dir)
     diff_text = generate_unified_diff(before, after) or "(no changes)\n"
+    changed_files = sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
 
     working_dir = sandbox_dir / "working"
     working_dir.mkdir(exist_ok=True)
@@ -219,4 +221,5 @@ def run_coder_task(
         todos=todos,
         test_result=test_result,
         retries=attempt,
+        changed_files=changed_files,
     )

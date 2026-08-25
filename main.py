@@ -251,6 +251,112 @@ def phase5_check() -> None:
     print(result.diff_text)
 
 
+class _DryRunGitHubClient:
+    """Stands in for GitHubClient in --phase6-check's default (non---live)
+    mode: prints what would happen instead of writing to GitHub. Its
+    `default_branch` of "main" mirrors a typical fresh repo, so the
+    pr_target HITL gate reliably fires - proving that gate live without
+    any network call, which is the safest way to demo it on request."""
+
+    def __init__(self) -> None:
+        from types import SimpleNamespace
+
+        self.default_branch = "main"
+        self.repo = SimpleNamespace(full_name="<dry-run>/<dry-run>")
+
+    def get_default_branch(self) -> str:
+        return self.default_branch
+
+    def commit_files_to_branch(self, *, branch: str, files: dict, message: str) -> str:
+        print(f"  [dry run] would commit {len(files)} file(s) to branch {branch!r}:")
+        print(f"  [dry run] commit message:\n{message}")
+        return "dryrun0000000000000000000000000000000000"
+
+    def open_pull_request(self, *, branch, base, title, body, labels, reviewer):
+        from types import SimpleNamespace
+
+        print(f"  [dry run] would open PR: {title!r} ({branch} -> {base})")
+        print(f"  [dry run] labels: {labels}, reviewer: {reviewer}")
+        return SimpleNamespace(html_url="<dry-run: no PR was actually created>", number=0)
+
+
+def phase6_check(*, live: bool = False, approve_gates: list[str] | None = None) -> None:
+    """Phase 6 'done when': one issue goes fully issue -> branch -> commit
+    -> PR, and at least one HITL gate is demonstrably triggered.
+
+    Default (no --live): a real Coder + Test Agent run against a
+    synthetic bug (same shape as --phase5-check), then the PR Agent's
+    real gate-checking logic against a dry-run GitHub stand-in - shows
+    exactly which HITL gate(s) fire (almost always pr_target, since a
+    fresh repo's default branch is main/master) without writing
+    anything to GitHub.
+
+    --live points it at your real GITHUB_REPO and genuinely creates a
+    branch/commit/PR there once gates are cleared via --approve-gates -
+    only run that once you mean to write to the real repo.
+    """
+    settings.validate_for_llm()
+
+    import tempfile
+    from pathlib import Path as _Path
+
+    from src.codepilot.coder.agent import run_coder_task
+    from src.codepilot.memory.working import WorkingMemory
+    from src.codepilot.orchestrator.issue import Issue
+    from src.codepilot.pr_agent.agent import open_pull_request
+    from src.codepilot.skills.registry import load as load_skill
+
+    repo_root = _Path(tempfile.mkdtemp(prefix="codepilot_phase6_demo_"))
+    (repo_root / "calculator.py").write_text("def divide(a, b):\n    return a / b\n", encoding="utf-8")
+
+    issue = Issue(
+        id="demo-3",
+        number=999,
+        title="divide() crashes on division by zero",
+        body="calculator.divide(a, b) raises ZeroDivisionError when b is 0. It should return None instead.",
+        reporter=None,
+    )
+
+    working_memory = WorkingMemory(issue_id=issue.id, issue_title=issue.title, issue_body=issue.body)
+    working_memory.record_classification("bug_fix")
+    working_memory.record_relevant_files(["calculator.py"])
+
+    print(f"Demo repo:  {repo_root}")
+    print("Running Coder + Test Agent...\n")
+    coder_result = run_coder_task(repo_root=repo_root, working_memory=working_memory, skill=load_skill("bug_fix"))
+    print(f"Retries: {coder_result.retries}, changed files: {coder_result.changed_files}")
+
+    if live:
+        settings.validate_for_github()
+        from src.codepilot.github_client import GitHubClient
+
+        client = GitHubClient()
+        print(f"\nLIVE MODE: writing to {settings.github_repo}")
+    else:
+        client = _DryRunGitHubClient()
+        print("\nDRY RUN (no GitHub writes) - pass --live to actually create a branch/commit/PR")
+
+    result = open_pull_request(
+        github_client=client,
+        issue=issue,
+        coder_result=coder_result,
+        approach_summary=coder_result.final_message[:500],
+        what_changed=[f"Updated {f}" for f in coder_result.changed_files],
+        why="Fixes the reported bug.",
+        approved_gates=frozenset(approve_gates or []),
+    )
+
+    print(f"\nPR Agent result: {result.status}")
+    if result.status == "PENDING_APPROVAL":
+        for p in result.pending_approvals:
+            print(f"  ⚠ gate '{p.gate}' requires approval: {p.reason} ({p.detail})")
+        print("\nRe-run with --approve-gates <gate1,gate2,...> to get past these.")
+    elif result.status == "PR_OPENED":
+        print(f"  {result.pr_url}")
+    elif result.status == "FAILED":
+        print(f"  {result.error}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="codepilot")
     parser.add_argument(
@@ -288,6 +394,21 @@ def main() -> None:
         action="store_true",
         help="Run the full Coder + Test Agent + retry loop against one synthetic bug-fix issue.",
     )
+    parser.add_argument(
+        "--phase6-check",
+        action="store_true",
+        help="Run Coder+Test then the PR Agent's gate-checking (dry run by default; see --live).",
+    )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="With --phase6-check: actually write to GITHUB_REPO instead of a dry run.",
+    )
+    parser.add_argument(
+        "--approve-gates",
+        default="",
+        help="With --phase6-check: comma-separated gate names to pre-approve, e.g. pr_target,file_count.",
+    )
     args = parser.parse_args()
 
     if args.smoke_test:
@@ -312,6 +433,11 @@ def main() -> None:
 
     if args.phase5_check:
         phase5_check()
+        return
+
+    if args.phase6_check:
+        gates = [g.strip() for g in args.approve_gates.split(",") if g.strip()]
+        phase6_check(live=args.live, approve_gates=gates)
         return
 
     parser.print_help()

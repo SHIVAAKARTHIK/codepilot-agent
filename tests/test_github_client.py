@@ -9,6 +9,11 @@ class _FakeLabel:
 
 
 @dataclass
+class _FakeUser:
+    login: str
+
+
+@dataclass
 class _FakeGHIssue:
     number: int
     title: str
@@ -17,6 +22,7 @@ class _FakeGHIssue:
     assignee: object | None = None
     assignees: list[object] = field(default_factory=list)
     pull_request: object | None = None
+    user: _FakeUser | None = None
 
 
 def test_estimate_complexity_scales_with_body_length():
@@ -57,6 +63,7 @@ def test_to_issue_maps_fields():
         title="Bug: crash",
         body="details",
         labels=[_FakeLabel("ai-assignable"), _FakeLabel("bug")],
+        user=_FakeUser("alice"),
     )
     issue = to_issue(gh_issue)
     assert issue.id == "7"
@@ -64,3 +71,9 @@ def test_to_issue_maps_fields():
     assert issue.title == "Bug: crash"
     assert issue.body == "details"
     assert issue.labels == ["ai-assignable", "bug"]
+    assert issue.reporter == "alice"
+
+
+def test_to_issue_reporter_none_when_no_user():
+    gh_issue = _FakeGHIssue(number=8, title="x", body="x", user=None)
+    assert to_issue(gh_issue).reporter is None

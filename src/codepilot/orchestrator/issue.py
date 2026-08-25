@@ -14,3 +14,4 @@ class Issue:
     title: str
     body: str
     labels: list[str] = field(default_factory=list)
+    reporter: str | None = None  # GitHub login of the original reporter, if known

@@ -24,6 +24,8 @@ _COUNT_RE = re.compile(r"(\d+)\s+(passed|failed|error|errors|skipped|xfailed|xpa
 
 @dataclass
 class TestResult:
+    __test__ = False  # not a pytest test class, just named similarly
+
     passed: bool
     no_tests_collected: bool
     exit_code: int

@@ -117,17 +117,23 @@ Call the demo target repo something like `codepilot-demo-target`.
 
 ## Phase 6 — PR Agent + GitHub write path
 
-- [ ] Branch: `codepilot/issue-{issue_number}-{slug}`
-- [ ] Structured commit message (summary + bullets + `Closes #N`)
-- [ ] PR: title `[CodePilot] {issue title}`, body with summary/approach/files/tests/issue link, labels `codepilot-generated` + `needs-review`, reviewer = issue reporter if available
-- [ ] Merge conflict → set `FAILED`, do not attempt auto-resolution
-- [ ] HITL approval gates, each as a single reusable "requires approval" check:
+- [x] Branch: `codepilot/issue-{issue_number}-{slug}`
+- [x] Structured commit message (summary + bullets + `Closes #N`)
+- [x] PR: title `[CodePilot] {issue title}`, body with summary/approach/files/tests/issue link, labels `codepilot-generated` + `needs-review`, reviewer = issue reporter if available
+- [x] Merge conflict → set `FAILED`, do not attempt auto-resolution
+- [x] HITL approval gates, each as a single reusable "requires approval" check:
   - PR targeting `main`/`master`
   - Any commit touching >5 files
   - Any `execute` call containing `git push`
   - Retry after 2 failed test runs
 
-**Done when:** one seeded issue goes fully issue → branch → commit → PR on `codepilot-demo-target`, and you can trigger at least one of the four HITL gates on camera.
+> **Implementation notes:**
+> - Uses the Git Data API (tree/commit/ref), not the simpler Contents API — lands all changed files in **one** structured commit instead of one commit per file, which is what "a structured commit message" for the whole change actually implies.
+> - "Merge conflict" here means the target branch ref can't be fast-forwarded to the new commit (e.g. a second run against the same issue diverged) — the closest real equivalent for an API-based flow with no local working tree to 3-way-merge. Caught as `MergeConflict` → `FAILED`, never auto-resolved.
+> - Gate checking happens **before any GitHub write** — `open_pull_request` returns `PENDING_APPROVAL` with zero branch/commit/PR calls made if any gate is un-approved. Same honest gap as Phase 4's guardrails: this refuses rather than silently proceeding, but doesn't yet *pause and resume* a live run — that needs Phase 8's TUI + a checkpointer. `approved_gates` is the seam that phase hooks into.
+> - The `git push` gate reuses Phase 4's already-tested `check_execute_command` (Coder/Test Agent `execute` calls), tagged `kind="hitl_gate"` to distinguish it from the hard `"command"` blocks — same refuse-and-surface behavior today, but a real TUI can tell "hard block" apart from "could be approved."
+
+**Done when:** one seeded issue goes fully issue → branch → commit → PR on `codepilot-demo-target`, and you can trigger at least one of the four HITL gates on camera. Proven two ways: deterministically via `tests/test_pr_agent.py` (fake GitHub client, no network — covers all 3 non-execute gates, the merge-conflict path, and reviewer defaulting) and live via `main.py --phase6-check` (real Coder+Test Agent, dry-run PR Agent by default so the `pr_target` gate fires safely on camera without touching GitHub; `--live --approve-gates ...` opts into real writes against `GITHUB_REPO` once you're ready).
 
 ---
 

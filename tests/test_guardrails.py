@@ -33,6 +33,14 @@ def test_plain_relative_command_is_allowed(tmp_path):
     assert check_execute_command("python app.py", sandbox_root=tmp_path) is None
 
 
+@pytest.mark.parametrize("command", ["git push", "git push origin main", "git push --force origin HEAD"])
+def test_git_push_is_flagged_as_hitl_gate_not_hard_block(tmp_path, command):
+    violation = check_execute_command(command, sandbox_root=tmp_path)
+    assert violation is not None
+    assert violation.kind == "hitl_gate"  # distinct from "command" hard-blocks
+    assert "human approval" in violation.reason
+
+
 def test_command_targeting_path_outside_sandbox_is_blocked(tmp_path):
     outside = tmp_path.parent / "definitely_not_the_sandbox" / "secret.txt"
     violation = check_execute_command(f"cat {outside}", sandbox_root=tmp_path)
