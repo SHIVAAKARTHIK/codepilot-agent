@@ -10,6 +10,7 @@ Built for the AI Engineering Bootcamp capstone (Assignment 01). See
 including every place the real installed libraries diverged from the
 assignment's pseudo-code and why each substitution was made.
 
+- **Demo target repo:** [codepilot-demo-target](https://github.com/SHIVAAKARTHIK/codepilot-demo-target) — a tiny CLI seeded with 4 real issues, one per Skill category, live and `ai-assignable`
 - **Demo video:** _add your recording link here before submitting_
 - **Example generated PR:** _add a link to a real PR opened by CodePilot here_
 

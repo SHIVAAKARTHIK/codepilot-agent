@@ -176,9 +176,9 @@ Build the TUI only after Phases 1–7 work headlessly via CLI/logs — don't deb
 
 ## Phase 9 — Demo repo, README, recording
 
-- [~] Seed `codepilot-demo-target` with 4 real issues, one per skill category (`reportgen`, a tiny CLI: empty-list crash / `--verbose` flag / `requests` version bump / missing README example) — **project built and committed locally, blocked on GitHub auth to actually push + open the issues** (neither `gh` nor `.env`'s `GITHUB_TOKEN` were available at the time this was built)
+- [x] Seed `codepilot-demo-target` with 4 real issues, one per skill category (`reportgen`, a tiny CLI: empty-list crash / `--verbose` flag / `requests` version bump / missing README example) — pushed and live: [#1](https://github.com/SHIVAAKARTHIK/codepilot-demo-target/issues/1) [#2](https://github.com/SHIVAAKARTHIK/codepilot-demo-target/issues/2) [#3](https://github.com/SHIVAAKARTHIK/codepilot-demo-target/issues/3) [#4](https://github.com/SHIVAAKARTHIK/codepilot-demo-target/issues/4), labelled `ai-assignable`. Verified live: `--poll-once` discovered all 4 and classified every one into its intended skill category correctly.
 - [x] README.md: setup instructions, architecture diagram (Mermaid), deviations summary, known limitations, security decisions — placeholders left for the demo video link and generated-PR link, to fill in once recorded
-- [ ] Record 5–7 min demo: issue polling → full task execution to PR → a HITL approval prompt → a guardrail block — **needs a human at the keyboard**; [recording_script.md](demo/recording_script.md) is the shot list
+- [ ] Record 5–7 min demo: issue polling → full task execution to PR → a HITL approval prompt → a guardrail block — **needs a human at the keyboard**; [recording_script.md](demo/recording_script.md) is the shot list. Everything the recording depends on (`--tui --live`, real polling, real Coder/Test Agent runs) is now confirmed working end-to-end against the real demo repo.
 - [ ] LinkedIn post with the demo video + repo link — [linkedin_post_draft.md](demo/linkedin_post_draft.md) is a starting draft
 
 ---
