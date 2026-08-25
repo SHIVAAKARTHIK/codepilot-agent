@@ -79,15 +79,19 @@ Call the demo target repo something like `codepilot-demo-target`.
 
 ## Phase 4 — Coder Agent + sandbox + guardrails (hardest phase — budget the most time here)
 
-- [ ] Local sandbox = fresh temp dir containing only the relevant repo subset (copied, not the live repo)
-- [ ] Permission enforcement wrapping the `execute`/`edit_file` tools: reject any operation targeting a path outside the sandbox dir. If the installed `deepagents` version doesn't expose the exact `Permission(...)` primitive from the spec, implement an equivalent guard function yourself and note the substitution in the README — the *behavior* is what's graded, not the exact API shape.
-- [ ] Guardrail blocklist on `execute`: reject commands containing `rm -rf`, `curl`, `wget`, `pip install`, or any path outside `/sandbox/`
-- [ ] Guardrail blocklist on file edits: reject `.env`, `*.secret`, `*.pem`, `*.key`, `*credentials*`
-- [ ] On a blocked operation: raise a `HumanApprovalRequired` event (explain what was attempted) rather than silently failing or silently proceeding
-- [ ] Coder inner loop: read relevant files → write plan to todos → `edit_file` surgical edits → `execute` to verify it runs → spawn Test Agent → on failure, retry (max 3)
-- [ ] Diff preview: write unified diff to `working/proposed_diff.txt` before finalizing
+- [x] Local sandbox = fresh temp dir containing only the relevant repo subset (copied, not the live repo)
+- [x] Permission enforcement wrapping the `execute`/`edit_file` tools: reject any operation targeting a path outside the sandbox dir. ~~If the installed `deepagents` version doesn't expose the exact `Permission(...)` primitive from the spec~~ — it doesn't; see note below.
+- [x] Guardrail blocklist on `execute`: reject commands containing `rm -rf`, `curl`, `wget`, `pip install`, or any path outside `/sandbox/`
+- [x] Guardrail blocklist on file edits: reject `.env`, `*.secret`, `*.pem`, `*.key`, `*credentials*`
+- [x] On a blocked operation: ~~raise a `HumanApprovalRequired` event~~ return a blocking `ToolMessage` explaining what was attempted, and notify an `on_violation` callback — see note below on why this isn't a full LangGraph `interrupt()` yet.
+- [x] Coder inner loop: read relevant files → write plan to todos → `edit_file` surgical edits → `execute` to verify it runs → ~~spawn Test Agent~~ (Test Agent is Phase 5) → on failure, retry (max 3) (retry loop lands with the Test Agent in Phase 5)
+- [x] Diff preview: write unified diff to `working/proposed_diff.txt` before finalizing — computed deterministically in code (`difflib`) rather than asking the LLM to hand-author a correct unified diff
 
-**Done when:** the Coder can take one real seeded bug-fix issue, make an edit inside the sandbox, and a deliberately-triggered dangerous command (e.g. you have it try `rm -rf` in a test) gets blocked and surfaced, not executed.
+> **Key finding, worth reading:** `deepagents`' own `LocalShellBackend` docs are explicit that its `virtual_mode`/`root_dir` path confinement provides **file-operation** sandboxing only — "`virtual_mode=True` and path-based restrictions provide NO security with shell access enabled, since commands can access any path on the system." So the split implemented here is deliberate: `LocalShellBackend(root_dir=sandbox_dir, virtual_mode=True)` genuinely confines `read_file`/`write_file`/`edit_file`/`delete` to the sandbox (blocks `..`/`~`/absolute-path escapes structurally); `FilesystemPermission(mode="deny")` adds the forbidden-filename rule on top of that for file writes; and a custom `GuardrailMiddleware.wrap_tool_call` (see [middleware.py](src/codepilot/coder/middleware.py)) is the actual enforcement layer for `execute`'s command *content* (`rm -rf`, `curl`, `wget`, `pip install`, out-of-sandbox path references), since nothing in deepagents inspects shell command text. This matches deepagents' own stated recommendation for this backend: "Enable Human-in-the-Loop middleware... this is STRONGLY RECOMMENDED as your primary safeguard."
+>
+> **On the HITL gap:** the blocked-operation path currently returns an explanatory error to the model (proven not to reach the backend — see `tests/test_middleware.py`) rather than a real, resumable LangGraph `interrupt()` requiring a checkpointer. A true pause-for-human-approval needs a persisted graph + the TUI to actually present/resume it, which is Phase 8's job; wiring the checkpointer now would be built before there's any UI to drive it. The `on_violation` callback is the seam Phase 8 hooks into.
+
+**Done when:** the Coder can take one real seeded bug-fix issue, make an edit inside the sandbox, and a deliberately-triggered dangerous command (e.g. you have it try `rm -rf` in a test) gets blocked and surfaced, not executed. Proven two ways: deterministically via `tests/test_guardrails.py` + `tests/test_middleware.py` (doesn't depend on whether a model chooses to attempt something risky), and live via `main.py --phase4-check` (real Coder agent fixing a real bug in a real sandbox).
 
 ---
 

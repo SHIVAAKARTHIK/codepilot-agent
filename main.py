@@ -145,6 +145,52 @@ def phase3_check(repo_path: str | None = None) -> None:
         print(f"  score={r.score:5.1f}  [{r.reason}]  {r.path}")
 
 
+def phase4_check() -> None:
+    """Phase 4 'done when': the Coder takes one real bug-fix issue, makes
+    an edit inside its sandbox, and a deliberately-triggered dangerous
+    command gets blocked and surfaced, not executed.
+
+    The guardrail-blocking half is proven deterministically by
+    tests/test_guardrails.py and tests/test_middleware.py - no LLM
+    involved, so it can't hinge on whether a model chooses to attempt
+    something risky on a given run. This command proves the other half
+    live: a real Coder agent editing real files inside a real sandbox.
+    """
+    settings.validate_for_llm()
+
+    import tempfile
+    from pathlib import Path as _Path
+
+    from src.codepilot.coder.agent import run_coder_task
+    from src.codepilot.memory.working import WorkingMemory
+
+    repo_root = _Path(tempfile.mkdtemp(prefix="codepilot_phase4_demo_"))
+    (repo_root / "calculator.py").write_text("def divide(a, b):\n    return a / b\n", encoding="utf-8")
+
+    working_memory = WorkingMemory(
+        issue_id="demo-1",
+        issue_title="divide() crashes on division by zero",
+        issue_body=(
+            "calculator.divide(a, b) raises ZeroDivisionError when b is 0. "
+            "It should return None instead of crashing."
+        ),
+    )
+    working_memory.record_classification("bug_fix")
+    working_memory.record_relevant_files(["calculator.py"])
+
+    print(f"Demo repo:  {repo_root}")
+    print("Running Coder agent...\n")
+
+    result = run_coder_task(repo_root=repo_root, working_memory=working_memory)
+
+    print(f"Sandbox:    {result.sandbox_dir}")
+    print(f"Guardrail violations during this run: {len(result.violations)}")
+    print("\nFinal message from Coder:")
+    print(result.final_message)
+    print("\nDiff (also written to <sandbox>/working/proposed_diff.txt):")
+    print(result.diff_text)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="codepilot")
     parser.add_argument(
@@ -172,6 +218,11 @@ def main() -> None:
         default=None,
         help="Repo to point Repo Explorer at (used with --phase3-check). Defaults to this project.",
     )
+    parser.add_argument(
+        "--phase4-check",
+        action="store_true",
+        help="Run the Coder agent against one synthetic bug-fix issue in a sandboxed temp repo.",
+    )
     args = parser.parse_args()
 
     if args.smoke_test:
@@ -188,6 +239,10 @@ def main() -> None:
 
     if args.phase3_check:
         phase3_check(args.repo_path)
+        return
+
+    if args.phase4_check:
+        phase4_check()
         return
 
     parser.print_help()
