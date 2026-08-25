@@ -12,6 +12,7 @@ __pycache__/
 # CodePilot runtime state
 .codepilot_sandbox/
 .codepilot_chroma/
+.codepilot_episodic.json
 .repo_map_cache/
 working/
 

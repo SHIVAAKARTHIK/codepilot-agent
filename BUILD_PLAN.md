@@ -26,11 +26,11 @@ Call the demo target repo something like `codepilot-demo-target`.
 
 ## Phase 0 — Setup & scaffolding
 
-- [ ] Create public GitHub repo `codepilot-agent` (empty, this repo)
-- [ ] Create a second public repo `codepilot-demo-target` — a small Python project (e.g. a toy CLI or Flask app, ~10-15 files) that you seed with issues in Phase 9. Doesn't need to be built now, just exist.
-- [ ] Python project scaffold (structure below), `requirements.txt` / `pyproject.toml`
-- [ ] `.env.example` with `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `GITHUB_REPO`
-- [ ] A `main.py` that just boots the orchestrator agent and does one LLM round-trip — sanity check before building anything else
+- [x] Create public GitHub repo `codepilot-agent` (empty, this repo)
+- [x] Create a second public repo `codepilot-demo-target` — a small Python project (e.g. a toy CLI or Flask app, ~10-15 files) that you seed with issues in Phase 9. Doesn't need to be built now, just exist.
+- [x] Python project scaffold (structure below), `requirements.txt` / `pyproject.toml`
+- [x] `.env.example` with `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `GITHUB_REPO`
+- [x] A `main.py` that just boots the orchestrator agent and does one LLM round-trip — sanity check before building anything else
 
 **Done when:** `python main.py --smoke-test` prints a real LLM response. No GitHub, no TUI yet.
 
@@ -38,11 +38,11 @@ Call the demo target repo something like `codepilot-demo-target`.
 
 ## Phase 1 — Orchestrator core + state machine
 
-- [ ] `create_deep_agent()` orchestrator with a planning-oriented system prompt
-- [ ] Explicit `TaskState` object: `TRIAGED → EXPLORING → IMPLEMENTING → TESTING → PR_OPENED → DONE | FAILED` — a real Python enum/state machine, not just prose in a prompt
-- [ ] `WorkingMemory` dataclass: issue metadata, repo map, relevant files list, current diff, test results, retry count — passed explicitly to every subagent spawn (not relied on via conversation history, per the spec's context engineering rule)
-- [ ] Task classification step: LLM call with structured output → one of `bug_fix / feature_addition / dependency_update / documentation / config_change`
-- [ ] `write_todos` checklist generation per task
+- [x] `create_deep_agent()` orchestrator with a planning-oriented system prompt
+- [x] Explicit `TaskState` object: `TRIAGED → EXPLORING → IMPLEMENTING → TESTING → PR_OPENED → DONE | FAILED` — a real Python enum/state machine, not just prose in a prompt
+- [x] `WorkingMemory` dataclass: issue metadata, repo map, relevant files list, current diff, test results, retry count — passed explicitly to every subagent spawn (not relied on via conversation history, per the spec's context engineering rule)
+- [x] Task classification step: LLM call with structured output → one of `bug_fix / feature_addition / dependency_update / documentation / config_change`
+- [x] `write_todos` checklist generation per task
 
 **Done when:** given one hardcoded fake issue (no GitHub call), the orchestrator classifies it and produces a todo checklist.
 
@@ -50,10 +50,12 @@ Call the demo target repo something like `codepilot-demo-target`.
 
 ## Phase 2 — GitHub polling + issue intake
 
-- [ ] `GitHubToolkit` wired to `codepilot-demo-target`: `list_issues` filtered to `ai-assignable` label or unassigned-below-threshold
-- [ ] Poll loop, configurable interval (default 5 min), plus a `--poll-once` flag for demo/testing so you're not waiting 5 minutes on camera
-- [ ] In-progress issue tracking (don't double-process an issue already being worked)
-- [ ] Episodic memory: session task log (issue ID, task type, files modified, outcome, duration) written to LangGraph Memory Store at session end; last-3-session summaries read at startup
+- [x] ~~`GitHubToolkit` wired to~~ `codepilot-demo-target`: `list_issues` filtered to `ai-assignable` label or unassigned-below-threshold
+- [x] Poll loop, configurable interval (default 5 min), plus a `--poll-once` flag for demo/testing so you're not waiting 5 minutes on camera
+- [x] In-progress issue tracking (don't double-process an issue already being worked)
+- [x] Episodic memory: session task log (issue ID, task type, files modified, outcome, duration) written to LangGraph Memory Store at session end; last-3-session summaries read at startup
+
+> **Deviation:** the installed `langchain-community==0.4.2`'s `GitHubAPIWrapper` (which backs `GitHubToolkit`) only supports GitHub App auth in `validate_environment` — no personal-access-token path exists at all. Registering a GitHub App just to poll one demo repo is disproportionate setup for this project, so [`github_client.py`](src/codepilot/github_client.py) wraps `PyGithub` directly (the same library `GitHubAPIWrapper` itself uses) with plain PAT auth. Required behavior is identical; only the auth mechanism differs. Documented in the README too.
 
 **Done when:** running against `codepilot-demo-target` with one real open issue, the orchestrator picks it up and classifies it.
 
