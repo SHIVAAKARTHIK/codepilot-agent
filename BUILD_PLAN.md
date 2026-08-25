@@ -176,10 +176,10 @@ Build the TUI only after Phases 1–7 work headlessly via CLI/logs — don't deb
 
 ## Phase 9 — Demo repo, README, recording
 
-- [ ] Seed `codepilot-demo-target` with 4–5 real issues, one per skill category, small and genuinely fixable (a null check bug, a small feature, a version bump, a missing docstring)
-- [ ] README.md: setup instructions, architecture diagram, GIF/recording of the TUI, link to at least one real generated PR
-- [ ] Record 5–7 min demo: issue polling → full task execution to PR → a HITL approval prompt → a guardrail block
-- [ ] LinkedIn post with the demo video + repo link
+- [~] Seed `codepilot-demo-target` with 4 real issues, one per skill category (`reportgen`, a tiny CLI: empty-list crash / `--verbose` flag / `requests` version bump / missing README example) — **project built and committed locally, blocked on GitHub auth to actually push + open the issues** (neither `gh` nor `.env`'s `GITHUB_TOKEN` were available at the time this was built)
+- [x] README.md: setup instructions, architecture diagram (Mermaid), deviations summary, known limitations, security decisions — placeholders left for the demo video link and generated-PR link, to fill in once recorded
+- [ ] Record 5–7 min demo: issue polling → full task execution to PR → a HITL approval prompt → a guardrail block — **needs a human at the keyboard**; [recording_script.md](demo/recording_script.md) is the shot list
+- [ ] LinkedIn post with the demo video + repo link — [linkedin_post_draft.md](demo/linkedin_post_draft.md) is a starting draft
 
 ---
 
