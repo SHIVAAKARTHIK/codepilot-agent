@@ -104,6 +104,47 @@ def poll_once() -> None:
     print(f"\nSession {summary.session_id} logged ({len(summary.tasks)} task(s)) to .codepilot_episodic.json")
 
 
+def phase3_check(repo_path: str | None = None) -> None:
+    """Phase 3 'done when': given a task description, Repo Explorer returns
+    a ranked file list, and the map is visibly reused (not rebuilt) on a
+    second run with no file changes.
+
+    Demoed against this repo (codepilot-agent) itself by default, since
+    codepilot-demo-target is still empty pre-Phase-9 - the builder is fully
+    repo-path-agnostic, so nothing here changes once that repo is seeded.
+    Pass --repo-path to point it elsewhere.
+    """
+    from pathlib import Path as _Path
+
+    from src.codepilot.repo_explorer.explorer import RepoExplorer
+
+    target = _Path(repo_path).resolve() if repo_path else settings.project_root
+    print(f"Repo: {target}\n")
+
+    explorer = RepoExplorer(target)
+    repo_map = explorer.build_or_load()
+    print(
+        f"First build   -> was_cached={explorer.was_cached}, "
+        f"files={len(repo_map.files)}, ~{repo_map.token_estimate()} tokens "
+        f"(budget {repo_map.token_budget}, truncated={repo_map.truncated})"
+    )
+
+    explorer_again = RepoExplorer(target)
+    repo_map_again = explorer_again.build_or_load()
+    print(
+        f"Second run     -> was_cached={explorer_again.was_cached} "
+        f"(should be True: no files changed since the first build)"
+    )
+    assert repo_map.fingerprint == repo_map_again.fingerprint
+
+    query = "task state machine transitions between orchestrator states"
+    results = explorer.select_relevant_files(query, top_k=5)
+    print(f"\nQuery: {query!r}")
+    print("Top relevant files (keyword strategy):")
+    for r in results:
+        print(f"  score={r.score:5.1f}  [{r.reason}]  {r.path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="codepilot")
     parser.add_argument(
@@ -121,6 +162,16 @@ def main() -> None:
         action="store_true",
         help="Run one real GitHub polling cycle against GITHUB_REPO and triage any candidate issues.",
     )
+    parser.add_argument(
+        "--phase3-check",
+        action="store_true",
+        help="Build/cache the Repo Map for --repo-path (default: this repo) and run a sample retrieval query.",
+    )
+    parser.add_argument(
+        "--repo-path",
+        default=None,
+        help="Repo to point Repo Explorer at (used with --phase3-check). Defaults to this project.",
+    )
     args = parser.parse_args()
 
     if args.smoke_test:
@@ -133,6 +184,10 @@ def main() -> None:
 
     if args.poll_once:
         poll_once()
+        return
+
+    if args.phase3_check:
+        phase3_check(args.repo_path)
         return
 
     parser.print_help()

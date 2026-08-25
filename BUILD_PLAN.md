@@ -63,11 +63,15 @@ Call the demo target repo something like `codepilot-demo-target`.
 
 ## Phase 3 — Repo Explorer + Repo Map
 
-- [ ] Repo Map builder: walk the repo, produce directory tree + per-file summary (path, language, exported symbols, 1-line description), capped to a 4000-token budget
-- [ ] Cache to disk, invalidate via `git diff` against last-seen commit
-- [ ] Store the Repo Map in the deepagents virtual filesystem via `write_file` so all subagents share it without rebuilding
-- [ ] Retrieval strategy 1 (build first): keyword matching over file summaries, top-K=10
-- [ ] Retrieval strategy 2 (build second): embedding search over file-content chunks in ChromaDB — only after keyword matching works end-to-end
+- [x] Repo Map builder: walk the repo, produce directory tree + per-file summary (path, language, exported symbols, 1-line description), capped to a 4000-token budget
+- [x] Cache to disk, invalidate via ~~`git diff`~~ a fingerprint of HEAD + uncommitted changes (generalizes "since last run" to also catch uncommitted edits, not just new commits)
+- [x] Store the Repo Map in the deepagents virtual filesystem via `write_file` so all subagents share it without rebuilding
+- [x] Retrieval strategy 1 (build first): keyword matching over file summaries, top-K=10
+- [x] Retrieval strategy 2 (build second): embedding search over file-content chunks in ChromaDB — only after keyword matching works end-to-end
+
+> **Note:** built deterministically (static analysis via `ast`/regex, no LLM calls) rather than as an LLM-driven agent roaming the filesystem — faster, free, and reproducible; matches how real repo-map tools (e.g. aider) do it. Embedding search uses Chroma's bundled local `all-MiniLM-L6-v2` model (onnxruntime), no external embeddings API/key needed.
+>
+> **Demoed against `codepilot-agent` itself** (via `main.py --phase3-check --repo-path <path>`), not `codepilot-demo-target`, since that repo is still empty pre-Phase-9. The builder is fully repo-path-agnostic, so nothing changes once it's seeded.
 
 **Done when:** given a task description, Repo Explorer returns a ranked file list from the real demo-target repo, and the map is visibly reused (not rebuilt) on a second run with no file changes.
 
