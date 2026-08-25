@@ -67,6 +67,12 @@ class EpisodicMemory:
     def log_task(self, entry: TaskLogEntry) -> None:
         self._tasks.append(entry)
 
+    @property
+    def tasks(self) -> list[TaskLogEntry]:
+        """Tasks logged so far in this session (not yet written to the
+        store - that happens at `end_session()`)."""
+        return list(self._tasks)
+
     def end_session(self) -> SessionSummary:
         """Write a structured session summary to the store (spec: "At
         session end, write a structured session summary to the memory

@@ -443,6 +443,83 @@ def phase7_check() -> None:
         print(f"  - {lesson.issue_summary}\n    approach: {lesson.approach}")
 
 
+def run_tui(*, live: bool = False, repo_path: str | None = None) -> None:
+    """Launch the TUI (Phase 8/Component 7).
+
+    Default: demo mode - a synthetic local repo with one seeded bug-fix
+    issue, no GitHub credentials needed beyond ANTHROPIC_API_KEY. This is
+    the easiest way to watch a full issue -> PR run live, including the
+    Human Approval prompt (the demo repo's default branch is treated as
+    'main', so the pr_target gate reliably fires - press 'a' to approve
+    it and watch the run continue to PR_OPENED).
+
+    --live polls the real GITHUB_REPO for issues. This still needs a
+    *local* checkout of that repo for the Coder/Repo Explorer to operate
+    on - pass --repo-path pointing at wherever you've `git clone`d
+    codepilot-demo-target; there's no auto-clone step (that's Phase 9
+    territory, once the demo repo is actually seeded).
+    """
+    settings.validate_for_llm()
+
+    from src.codepilot.memory.episodic import EpisodicMemory
+    from src.codepilot.memory.semantic import SemanticMemory
+    from src.codepilot.repo_explorer.explorer import RepoExplorer
+    from src.codepilot.tui.app import CodePilotApp
+
+    if live:
+        settings.validate_for_github()
+        if not repo_path:
+            raise SystemExit(
+                "--live requires --repo-path pointing at a local checkout of GITHUB_REPO "
+                "(clone it yourself first - there's no auto-clone step yet)."
+            )
+        from pathlib import Path as _Path
+
+        from src.codepilot.github_client import GitHubClient
+        from src.codepilot.orchestrator.poller import IssuePoller
+
+        repo_root = _Path(repo_path).resolve()
+        github_client = GitHubClient()
+        issue_source = IssuePoller(github_client=github_client)
+        repo_id = settings.github_repo
+    else:
+        import tempfile
+        from pathlib import Path as _Path
+
+        from src.codepilot.orchestrator.issue import Issue
+        from src.codepilot.tui.demo_source import StaticIssueSource
+
+        repo_root = _Path(tempfile.mkdtemp(prefix="codepilot_tui_demo_"))
+        (repo_root / "calculator.py").write_text("def divide(a, b):\n    return a / b\n", encoding="utf-8")
+        demo_issue = Issue(
+            id="tui-demo-1",
+            number=1,
+            title="divide() crashes on division by zero",
+            body="calculator.divide(a, b) raises ZeroDivisionError when b is 0. It should return None instead.",
+            reporter=None,
+        )
+        issue_source = StaticIssueSource([demo_issue])
+        github_client = None
+        repo_id = "codepilot-tui-demo"
+
+    repo_explorer = RepoExplorer(repo_root)
+    episodic_memory = EpisodicMemory()
+    semantic_memory = SemanticMemory()
+
+    app = CodePilotApp(
+        repo_root=repo_root,
+        repo_explorer=repo_explorer,
+        episodic_memory=episodic_memory,
+        semantic_memory=semantic_memory,
+        github_client=github_client,
+        repo_id=repo_id,
+        issue_source=issue_source,
+        poll_interval_minutes=settings.poll_interval_minutes,
+    )
+    app.run()
+    episodic_memory.end_session()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="codepilot")
     parser.add_argument(
@@ -500,6 +577,11 @@ def main() -> None:
         action="store_true",
         help="Run two similar bug-fix issues; the second should visibly reuse a lesson from the first.",
     )
+    parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Launch the TUI (demo mode by default - a synthetic issue, no GitHub needed).",
+    )
     args = parser.parse_args()
 
     if args.smoke_test:
@@ -533,6 +615,10 @@ def main() -> None:
 
     if args.phase7_check:
         phase7_check()
+        return
+
+    if args.tui:
+        run_tui(live=args.live, repo_path=args.repo_path)
         return
 
     parser.print_help()
