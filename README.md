@@ -12,7 +12,7 @@ assignment's pseudo-code and why each substitution was made.
 
 - **Demo target repo:** [codepilot-demo-target](https://github.com/SHIVAAKARTHIK/codepilot-demo-target) — a tiny CLI seeded with 4 real issues, one per Skill category, live and `ai-assignable`
 - **Demo video:** _add your recording link here before submitting_
-- **Example generated PR:** _add a link to a real PR opened by CodePilot here_
+- **Example generated PR:** [#6 — Bump requests to the latest minor version](https://github.com/SHIVAAKARTHIK/codepilot-demo-target/pull/6) (also see [#5](https://github.com/SHIVAAKARTHIK/codepilot-demo-target/pull/5))
 
 ---
 
